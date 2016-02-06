@@ -639,9 +639,10 @@ var library = function (options) {
             }
         );
     };
-    internals.servoOut = function (a) {
+    internals.servoOut = function (servoTime) {
         // how many servos?
         var servoPins = 8;
+        var isServoTimeArray = _.isArray(servoTime);
 
         // console.log('servoOut - Pulse time: ', a);
 
@@ -650,19 +651,20 @@ var library = function (options) {
 
         // clear out the buffer with undefined (special value of -1 anything less than 0 frees up the pin and makes it floating)
         _.times(servoPins - 1, function (i) {
-            rcServoBuffer.writeInt16LE(-1, i * 2);
+            // do we have a passed value for this pin?
+            if (isServoTimeArray && servoTime.length >= i) {
+                rcServoBuffer.writeInt16LE(servoTime[i] || -1, i * 2);
+            } else {
+                // no value
+                rcServoBuffer.writeInt16LE(-1, i * 2);
+            }
         });
-
-        // min/max = -500-2500
-        rcServoBuffer.writeInt16LE(a, 0);
 
         // fire away!
         internals.sendCommand(
             SBGC.SBGC_CMD_SERVO_OUT,
             rcServoBuffer,
-            function () {
-                // console.log('Done: SBGC.SBGC_CMD_CONTROL - Roll: %s Pitch: %s Yaw: %s', roll, pitch, yaw);
-            }
+            _.noop
         );
     };
     internals.requestRealTimeData3 = function () {
@@ -677,6 +679,177 @@ var library = function (options) {
         internals.sendCommand(
             SBGC.SBGC_CMD_REALTIME_DATA_4,
             null
+        );
+    };
+    internals.triggerPin = function (pinId, state) {
+        // create a buffer for our data
+        var pinBuffer = new Buffer(2);
+
+        // pin and state
+        pinBuffer.writeUInt8(pinId, 0);
+        pinBuffer.writeUInt8(state, 1);
+
+        // fire away!
+        internals.sendCommand(
+            SBGC.SBGC_CMD_TRIGGER_PIN,
+            pinBuffer,
+            _.noop
+        );
+    };
+    internals.motorsOn = function() {
+        internals.sendCommand(SBGC.SBGC_CMD_MOTORS_ON);
+    };
+    internals.motorsOff = function() {
+        internals.sendCommand(SBGC.SBGC_CMD_MOTORS_OFF);
+    };
+    internals.executeMenu = function(cmdId) {
+        // create a buffer for our data
+        var menuBuffer = new Buffer(1);
+
+        // pin and state
+        menuBuffer.writeUInt8(cmdId, 0);
+
+        // fire away!
+        internals.sendCommand(
+            SBGC.SBGC_CMD_EXECUTE_MENU,
+            menuBuffer,
+            _.noop
+        );
+    };
+    internals.readParams = function(profileId) {
+        // create a buffer for our data
+        var paramsBuffer = new Buffer(1);
+
+        // pin and state
+        paramsBuffer.writeUInt8(profileId, 0);
+
+        // fire away!
+        internals.sendCommand(
+            SBGC.SBGC_CMD_READ_PARAMS,
+            paramsBuffer,
+            _.noop
+        );
+    };
+    internals.readParams3 = function(profileId) {
+        // create a buffer for our data
+        var paramsBuffer = new Buffer(1);
+
+        // pin and state
+        paramsBuffer.writeUInt8(profileId, 0);
+
+        // fire away!
+        internals.sendCommand(
+            SBGC.SBGC_CMD_READ_PARAMS_3,
+            paramsBuffer,
+            _.noop
+        );
+    };
+    internals.readParamsExt = function(profileId) {
+        // create a buffer for our data
+        var paramsBuffer = new Buffer(1);
+
+        // pin and state
+        paramsBuffer.writeUInt8(profileId, 0);
+
+        // fire away!
+        internals.sendCommand(
+            SBGC.SBGC_CMD_READ_PARAMS_EXT,
+            paramsBuffer,
+            _.noop
+        );
+    };
+
+    var parseControlMode = function (mode) {
+        // pretty easy
+        // SBGC_CONTROL_MODE_NO: 0,
+        // SBGC_CONTROL_MODE_SPEED: 1,
+        // SBGC_CONTROL_MODE_ANGLE: 2,
+        // SBGC_CONTROL_MODE_SPEED_ANGLE: 3,
+        // SBGC_CONTROL_MODE_RC: 4,
+        // SBGC_CONTROL_MODE_ANGLE_REL_FRAME: 5,
+        switch(mode) {
+            case 'off':
+                return SBGC.SBGC_CONTROL_MODE_NO;
+                break;
+            case 'speed':
+                return SBGC.SBGC_CONTROL_MODE_SPEED;
+                break;
+            case 'angle':
+                return SBGC.SBGC_CONTROL_MODE_ANGLE;
+                break;
+            case 'speed-angle':
+                return SBGC.SBGC_CONTROL_MODE_SPEED_ANGLE;
+                break;
+            case 'rc':
+                return SBGC.SBGC_CONTROL_MODE_RC;
+                break;
+            case 'angle-rel-frame':
+                return SBGC.SBGC_CONTROL_MODE_ANGLE_REL_FRAME;
+                break;
+            default:
+                return SBGC.SBGC_CONTROL_MODE_SPEED;
+        }
+    };
+    internals.control = function (opts) {
+        // default options?
+        _.defaults(opts, {
+            roll: {
+                mode: 'speed',
+                speed: -1,
+                angle: 0
+            },
+            pitch: {
+                mode: 'speed',
+                speed: -1,
+                angle: 0
+            },
+            yaw: {
+                mode: 'speed',
+                speed: -1,
+                angle: 0
+            },
+        });
+
+        // parse our control mode
+        opts.roll.mode = parseControlMode(opts.roll.mode);
+        opts.pitch.mode = parseControlMode(opts.pitch.mode);
+        opts.yaw.mode = parseControlMode(opts.yaw.mode);
+
+        // create a buffer for our data
+        var controlBuffer = new Buffer(15);
+
+        // CONTROL_MODE_ROLL – 1u
+        controlBuffer.writeUInt8(opts.roll.mode, 0);
+
+        // CONTROL_MODE_PITCH – 1u
+        controlBuffer.writeUInt8(opts.pitch.mode, 1);
+
+        // CONTROL_MODE_YAW – 1u
+        controlBuffer.writeUInt8(opts.yaw.mode, 2);
+
+        // SPEED_ROLL – 2s
+        controlBuffer.writeInt16LE(opts.roll.speed, 3);
+
+        // ANGLE_ROLL – 2s
+        controlBuffer.writeInt16LE(opts.roll.angle, 5);
+
+        // SPEED_PITCH – 2s
+        controlBuffer.writeInt16LE(opts.pitch.speed, 7);
+
+        // ANGLE_PITCH – 2s
+        controlBuffer.writeInt16LE(opts.pitch.angle, 9);
+
+        // SPEED_YAW – 2s
+        controlBuffer.writeInt16LE(opts.yaw.speed, 11);
+
+        // ANGLE_YAW – 2s
+        controlBuffer.writeInt16LE(opts.yaw.angle, 13);
+
+        // fire away!
+        internals.sendCommand(
+            SBGC.SBGC_CMD_CONTROL,
+            controlBuffer,
+            _.noop
         );
     };
 
