@@ -1,5 +1,3 @@
-SimpleBGC Wrapper for C library
-
 # Example
 
 ```javascript
