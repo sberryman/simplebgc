@@ -7,7 +7,8 @@ var EventEmitter = require('events').EventEmitter;
 
 var defaults = {
     port: '/dev/cu.SLAB_USBtoUART',
-    baudRate: 115200
+    baudRate: 115200,
+    bufferSize: 150
 };
 var serialDefaults = {
     cmdId: SBGC.SBGC_CMD_BOARD_INFO
@@ -30,9 +31,7 @@ var SerialCommand = function (options) {
     var getBytesAvailable = function () {
         return len - pos;
     };
-
-
-}
+};
 
 
 var library = function (options) {
@@ -58,15 +57,16 @@ var library = function (options) {
 
         // open the port
         internals.serialPort = new SerialPort.SerialPort(options.port, {
-            baudrate: options.baudRate,
-            parser: SerialPort.parsers.raw
+            baudRate: options.baudRate,
+            parser: SerialPort.parsers.raw,
+            bufferSize: options.bufferSize
         });
 
         internals.serialPort.on('open', function () {
 
             // event listeners
             internals.serialPort.on('data', function (data) {
-                console.log('Serial Port Data: ', util.inspect(data));
+                // console.log('Serial Port Data: ', util.inspect(data));
 
                 // read the header!
                 var header = {
@@ -94,8 +94,8 @@ var library = function (options) {
                 var bodyChecksum = data.readUInt8(data.length - 1);
 
                 // debug data!
-                console.log('Header: ' + util.inspect(header));
-                console.log('Body: ' + util.inspect(body) + ' (checksum: ' + bodyChecksum + ')');
+                // console.log('Header: ' + util.inspect(header));
+                // console.log('Body: ' + util.inspect(body) + ' (checksum: ' + bodyChecksum + ')');
 
                 // do we have it?
                 if (!_.isObject(incomingDataParser[header.cmdId])) {
@@ -300,8 +300,32 @@ var library = function (options) {
                 i2cErrorCount: buffer.readUInt16LE(52),
 
                 // deprecated
-                errorCode: buffer.readUInt8(54),
+                errorCode: buffer.readUInt8(54)
+            };
 
+            // emit?
+            if (_.isObject(pOpts) && pOpts.emit === true) {
+                console.log('SBGC_CMD_REALTIME_DATA_3: ', result);
+                // internals._this.emit(incomingDataParser[SBGC.SBGC_CMD_REALTIME_DATA_4].event, result);
+            }
+
+            // return our result
+            return result;
+        }
+    };
+
+    // receive real-time data!
+    incomingDataParser[SBGC.SBGC_CMD_REALTIME_DATA_4] = {
+        event: 'realtime_data_4',
+        parse: function (buffer, pOpts) {
+            // apply our defaults
+            pOpts = _.defaults(pOpts || {}, incomingDataParserDefaultOptions);
+
+            // first get version 3
+            var realTimeData3 = incomingDataParser[SBGC.SBGC_CMD_REALTIME_DATA_3].parse(buffer, { emit: false });
+
+            // parse the extended data
+            var realTimeData4 = {
                 // batery voltage
                 // units: 0.01 volt
                 batLevel: buffer.readUInt16LE(55),
@@ -322,32 +346,8 @@ var library = function (options) {
                 // 
                 motorPowerRoll: buffer.readUInt8(60),
                 motorPowerPitch: buffer.readUInt8(61),
-                motorPowerYaw: buffer.readUInt8(62)
-            };
+                motorPowerYaw: buffer.readUInt8(62),
 
-            // emit?
-            if (_.isObject(pOpts) && pOpts.emit === true) {
-                console.log('SBGC_CMD_REALTIME_DATA_3: ', result);
-                this.emit(incomingDataParser[SBGC.SBGC_CMD_REALTIME_DATA_3].event, result);
-            }
-
-            // return our result
-            return result;
-        }
-    };
-
-    // receive real-time data!
-    incomingDataParser[SBGC.SBGC_CMD_REALTIME_DATA_4] = {
-        event: 'realtime_data_4',
-        parse: function (buffer, pOpts) {
-            // apply our defaults
-            pOpts = _.defaults(pOpts || {}, incomingDataParserDefaultOptions);
-
-            // first get version 3
-            var realTimeData3 = incomingDataParser[SBGC.SBGC_CMD_REALTIME_DATA_3].parse(buffer, { emit: false });
-
-            // parse the extended data
-            var realTimeData4 = {
                 // camera angels in 14-bit resolution per full furn.
                 // units: 0.02197265625 degree
                 // min: -32768, max: 32768
@@ -615,7 +615,7 @@ var library = function (options) {
         pitch = _.clamp(pitch, -500, 500);
         yaw = _.clamp(yaw, -500, 500);
 
-        console.log('rcRoll - Roll: %s Pitch: %s Yaw: %s', roll, pitch, yaw);
+        // console.log('rcRoll - Roll: %s Pitch: %s Yaw: %s', roll, pitch, yaw);
 
         // create a buffer for our data
         var rcRollBuffer = new Buffer(SBGC.SBGC_API_VIRT_NUM_CHANNELS * 2);
