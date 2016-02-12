@@ -95,7 +95,7 @@ var library = function (options) {
 
                 // debug data!
                 // console.log('Header: ' + util.inspect(header));
-                // console.log('Body: ' + util.inspect(body) + ' (checksum: ' + bodyChecksum + ')');
+                // console.log('Body: ' + util.inspect(body) + ' (checksum: ' + bodyChecksum + ', length: ' + body.length + ')');
 
                 // do we have it?
                 if (!_.isObject(incomingDataParser[header.cmdId])) {
@@ -405,25 +405,15 @@ var library = function (options) {
     // confirmation of previous command
     incomingDataParser[SBGC.SBGC_CMD_CONFIRM] = {
         event: 'cmd_confirm',
-        parse: function (buffer) {
-            // parse the buffer
-            var result = {
-                cmd: buffer.readUInt8(0),
-
-                data: new Buffer(buffer.length - 1)
-            };
-
-            // copy data
-            buffer.copy(result.data, 0, 1);
-
+        parse: function (buffer, pOpts) {
             // emit?
             if (_.isObject(pOpts) && pOpts.emit === true) {
-                console.log('SBGC_CMD_CONFIRM: ', result);
-                this.emit(incomingDataParser[SBGC.SBGC_CMD_CONFIRM].event, result);
+                console.log('SBGC_CMD_CONFIRM: ', buffer);
+                this.emit(incomingDataParser[SBGC.SBGC_CMD_CONFIRM].event, buffer);
             }
 
             // return our result
-            return result;
+            return buffer;
         }
     };
 
@@ -633,10 +623,7 @@ var library = function (options) {
         // fire away!
         internals.sendCommand(
             SBGC.SBGC_CMD_API_VIRT_CH_CONTROL,
-            rcRollBuffer,
-            function () {
-                // console.log('Done: SBGC.SBGC_CMD_CONTROL - Roll: %s Pitch: %s Yaw: %s', roll, pitch, yaw);
-            }
+            rcRollBuffer
         );
     };
     internals.servoOut = function (servoTime) {
