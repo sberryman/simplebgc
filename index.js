@@ -36,20 +36,20 @@ var SerialCommand = function (options) {
 
 var library = function (options) {
 
-   // call the super constructor to initialize `this`
-   EventEmitter.call(this);
-
     // merge options and defaults
     _.defaults(options, defaults);
 
     // variables
+    var self = this;
     this.SBGC = SBGC;
     this.serialPort = null;
+    self.events = new EventEmitter();
 
     var internals = this.internals = {
         SBGC: SBGC,
         serialPort: null,
-        _this: this
+        _this: self,
+        events: self.events
     };
 
     // internal methods
@@ -60,69 +60,75 @@ var library = function (options) {
             baudRate: options.baudRate,
             parser: SerialPort.parsers.raw,
             bufferSize: options.bufferSize
+        }, false);
+
+        internals.serialPort.on('error', function (err) {
+
+            // re-emit the error
+            console.log('Serial Port Error: ', err);
+            self.events.emit('error', err);
         });
 
-        internals.serialPort.on('open', function () {
+        internals.serialPort.on('data', function (data) {
+            // console.log('Serial Port Data: ', util.inspect(data));
 
-            // event listeners
-            internals.serialPort.on('data', function (data) {
-                // console.log('Serial Port Data: ', util.inspect(data));
+            // read the header!
+            var header = {
+                character: data.toString('ascii', 0, 1),
+                cmdId: data.readUInt8(1),
+                size: data.readUInt8(2),
+                checksum: data.readUInt8(3)
+            };
 
-                // read the header!
-                var header = {
-                    character: data.toString('ascii', 0, 1),
-                    cmdId: data.readUInt8(1),
-                    size: data.readUInt8(2),
-                    checksum: data.readUInt8(3)
-                };
+            // check the validity of the header
+            if (!header ||
+                !_.isNumber(header.cmdId) ||
+                !_.isNumber(header.size) ||
+                !_.isNumber(header.checksum)) {
+                throw new Error('Invalid payload!');
+            }
 
-                // check the validity of the header
-                if (!header ||
-                    !_.isNumber(header.cmdId) ||
-                    !_.isNumber(header.size) ||
-                    !_.isNumber(header.checksum)) {
-                    throw new Error('Invalid payload!');
+            // ensure the checksum is accurate
+            if (header.cmdId + header.size !== header.checksum) {
+                throw new Error('Invalid checksum!');
+            }
+
+            // grab the body
+            var body = data.slice(4, header.size + 4);
+            var bodyChecksum = data.readUInt8(data.length - 1);
+
+            // debug data!
+            // console.log('Header: ' + util.inspect(header));
+            // console.log('Body: ' + util.inspect(body) + ' (checksum: ' + bodyChecksum + ', length: ' + body.length + ')');
+
+            // do we have it?
+            if (!_.isObject(incomingDataParser[header.cmdId])) {
+                return incomingDataParser['not-implemented'];
+            }
+
+            // guess so!
+            return incomingDataParser[header.cmdId].parse(body);
+        });
+        internals.serialPort.on('close', function (data) {
+
+            // re-emit
+            self.events.emit('close');
+        });
+
+        process.nextTick(function () {
+
+            internals.serialPort.open(function (err) {
+
+                // do we have an error?
+                if (err) {
+                    self.events.emit('error', err);
+                    return
                 }
 
-                // ensure the checksum is accurate
-                if (header.cmdId + header.size !== header.checksum) {
-                    throw new Error('Invalid checksum!');
-                }
-
-                // grab the body
-                var body = data.slice(4, header.size);
-                var bodyChecksum = data.readUInt8(data.length - 1);
-
-                // debug data!
-                // console.log('Header: ' + util.inspect(header));
-                // console.log('Body: ' + util.inspect(body) + ' (checksum: ' + bodyChecksum + ', length: ' + body.length + ')');
-
-                // do we have it?
-                if (!_.isObject(incomingDataParser[header.cmdId])) {
-                    return incomingDataParser['not-implemented'];
-                }
-
-                // guess so!
-                return incomingDataParser[header.cmdId].parse(body);
+                // success, connection is open
+                self.events.emit('open');
             });
 
-            internals.serialPort.on('close', function (data) {
-                console.log('Serial Port Closed!');
-            });
-
-            console.log('Connection opened!!');
-
-            // internals.sendCommand(
-            //     // SBGC.SBGC_CMD_BOARD_INFO,
-            //     // SBGC.SBGC_CMD_REALTIME_DATA_3,
-            //     SBGC.SBGC_CMD_API_VIRT_CH_CONTROL,
-            //     // [],
-            //     dataBuffer,
-            //     // dataBuffer.length,
-            //     function () {
-            //         console.log('Done: SBGC.SBGC_CMD_CONTROL - Roll: %s Pitch: %s Yaw: %s', roll, pitch, yaw);
-            //     }
-            // );
         });
     };
 
@@ -846,9 +852,6 @@ var library = function (options) {
     // return our internals
     return internals;
 };
-
-// make sure our library inherits from EventEmitter!
-util.inherits(library, EventEmitter);
 
 // export it
 module.exports = library;
